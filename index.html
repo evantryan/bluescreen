@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Bluescreen Tracking Markers</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0000ff">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: #0000ff;
+    -webkit-user-select: none; user-select: none;
+    -webkit-touch-callout: none; overscroll-behavior: none;
+    font: 14px/1.3 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  body.idle, body.idle * { cursor: none !important; }
+  #stage { position: fixed; inset: 0; }
+  .dot { position: absolute; border-radius: 50%; }
+
+  #panel {
+    position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%);
+    width: max-content; max-width: calc(100vw - 24px);
+    box-sizing: border-box; padding: 12px 16px;
+    display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; justify-content: center;
+    background: rgba(24, 26, 32, .92); color: #e8eaf0;
+    border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.4);
+    opacity: 1; transition: opacity .25s;
+  }
+  #panel.off { opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .25s, visibility 0s .25s; }
+  #panel label { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+  #panel .val { min-width: 3ch; text-align: right; font-variant-numeric: tabular-nums; color: #aab0c0; }
+  #panel input[type=color] { width: 36px; height: 28px; padding: 0; border: 1px solid #555b6b; border-radius: 6px; background: none; }
+  #panel input[type=number] {
+    width: 3.5em; padding: 4px 6px; border-radius: 6px;
+    border: 1px solid #555b6b; background: #0f1116; color: inherit; font: inherit;
+  }
+  #panel input[type=range] { width: 110px; }
+  #panel button {
+    padding: 6px 12px; border-radius: 6px; border: 1px solid #555b6b;
+    background: #2a2e39; color: inherit; font: inherit; cursor: pointer;
+  }
+  #panel button:hover { background: #363b49; }
+  #panel :focus-visible { outline: 2px solid #8ab4ff; outline-offset: 2px; }
+  .pattern { display: flex; align-items: center; gap: 6px; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+
+<div id="panel" role="toolbar" aria-label="Display settings">
+  <label>Background <input type="color" id="bg"></label>
+  <label>Markers <input type="color" id="mk"></label>
+  <label>Size <input type="range" id="size" min="0.5" max="15" step="0.1"><span class="val" id="sizeV"></span></label>
+  <span class="pattern">Pattern
+    <input type="number" id="rows" min="1" max="30" aria-label="Rows">
+    <span aria-hidden="true">×</span>
+    <input type="number" id="cols" min="1" max="30" aria-label="Columns">
+  </span>
+  <label>Edge margin <input type="range" id="margin" min="0" max="45" step="1"><span class="val" id="marginV"></span></label>
+  <label>Brightness <input type="range" id="bright" min="5" max="100" step="1"><span class="val" id="brightV"></span></label>
+  <button id="fs" type="button">Fullscreen</button>
+  <button id="reset" type="button">Reset</button>
+</div>
+
+<script>
+(function () {
+  var DEFAULTS = { bg: '#0000ff', mk: '#ffffff', size: 4, rows: 3, cols: 3, margin: 12, bright: 100 };
+  var KEY = 'bluescreen-markers-v1';
+  var s = Object.assign({}, DEFAULTS);
+  try { Object.assign(s, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) {}
+
+  var $ = function (id) { return document.getElementById(id); };
+  var stage = $('stage'), panel = $('panel');
+  var ids = ['bg', 'mk', 'size', 'rows', 'cols', 'margin', 'bright'];
+
+  function clamp(v, lo, hi, fallback) {
+    v = parseFloat(v);
+    return isNaN(v) ? fallback : Math.min(hi, Math.max(lo, v));
+  }
+
+  // Brightness scales the actual RGB values, so 100% is exactly the chosen color.
+  function scaled(hex, b) {
+    var n = parseInt(hex.slice(1), 16), f = b / 100;
+    var r = Math.round(((n >> 16) & 255) * f), g = Math.round(((n >> 8) & 255) * f), bl = Math.round((n & 255) * f);
+    return 'rgb(' + r + ',' + g + ',' + bl + ')';
+  }
+
+  function render() {
+    var W = window.innerWidth, H = window.innerHeight;
+    var bg = scaled(s.bg, s.bright), mk = scaled(s.mk, s.bright);
+    document.documentElement.style.background = bg;
+    document.body.style.background = bg;
+
+    var d = Math.round(Math.min(W, H) * s.size / 100);
+    var mx = W * s.margin / 100, my = H * s.margin / 100;
+    var frag = document.createDocumentFragment();
+    for (var r = 0; r < s.rows; r++) {
+      var y = s.rows === 1 ? H / 2 : my + r * (H - 2 * my) / (s.rows - 1);
+      for (var c = 0; c < s.cols; c++) {
+        var x = s.cols === 1 ? W / 2 : mx + c * (W - 2 * mx) / (s.cols - 1);
+        var dot = document.createElement('div');
+        dot.className = 'dot';
+        dot.style.cssText = 'width:' + d + 'px;height:' + d + 'px;background:' + mk +
+          ';left:' + Math.round(x - d / 2) + 'px;top:' + Math.round(y - d / 2) + 'px';
+        frag.appendChild(dot);
+      }
+    }
+    stage.replaceChildren(frag);
+  }
+
+  function syncControls() {
+    ids.forEach(function (id) { $(id).value = s[id]; });
+    $('sizeV').textContent = s.size + '%';
+    $('marginV').textContent = s.margin + '%';
+    $('brightV').textContent = s.bright + '%';
+  }
+
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {} }
+
+  function read() {
+    s.bg = $('bg').value; s.mk = $('mk').value;
+    s.size = clamp($('size').value, 0.5, 15, DEFAULTS.size);
+    s.margin = clamp($('margin').value, 0, 45, DEFAULTS.margin);
+    s.bright = clamp($('bright').value, 5, 100, DEFAULTS.bright);
+    var rows = clamp($('rows').value, 1, 30, NaN), cols = clamp($('cols').value, 1, 30, NaN);
+    if (!isNaN(rows)) s.rows = Math.round(rows);
+    if (!isNaN(cols)) s.cols = Math.round(cols);
+    $('sizeV').textContent = s.size + '%';
+    $('marginV').textContent = s.margin + '%';
+    $('brightV').textContent = s.bright + '%';
+    render(); save();
+  }
+
+  ids.forEach(function (id) { $(id).addEventListener('input', read); });
+  $('rows').addEventListener('change', syncControls);
+  $('cols').addEventListener('change', syncControls);
+  $('reset').addEventListener('click', function () { s = Object.assign({}, DEFAULTS); syncControls(); render(); save(); });
+  window.addEventListener('resize', render);
+
+  // Fullscreen (needs a user gesture) and screen wake lock
+  function isFs() { return document.fullscreenElement || document.webkitFullscreenElement; }
+  function toggleFs() {
+    try {
+      if (isFs()) {
+        (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+      } else {
+        var el = document.documentElement, req = el.requestFullscreen || el.webkitRequestFullscreen;
+        if (req) { var p = req.call(el, { navigationUI: 'hide' }); if (p && p.catch) p.catch(function () {}); }
+      }
+    } catch (e) {}
+    keepAwake();
+  }
+  var lock = null;
+  function keepAwake() {
+    try {
+      if ('wakeLock' in navigator && !lock) {
+        navigator.wakeLock.request('screen').then(function (l) {
+          lock = l; l.addEventListener('release', function () { lock = null; });
+        }).catch(function () {});
+      }
+    } catch (e) {}
+  }
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) keepAwake(); });
+  $('fs').addEventListener('click', toggleFs);
+
+  // Click the bare screen to go fullscreen the first time
+  stage.addEventListener('click', function () { if (!isFs()) toggleFs(); });
+  stage.addEventListener('dblclick', toggleFs);
+
+  window.addEventListener('keydown', function (e) {
+    var t = e.target && e.target.tagName;
+    if ((e.key === 'f' || e.key === 'F') && t !== 'INPUT') toggleFs();
+  });
+
+  // Controls appear on activity and vanish after 3 seconds of stillness
+  var timer;
+  function hide() {
+    panel.classList.add('off');
+    document.body.classList.add('idle');
+    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+  }
+  function wake() {
+    panel.classList.remove('off');
+    document.body.classList.remove('idle');
+    clearTimeout(timer);
+    timer = setTimeout(hide, 3000);
+  }
+  ['pointermove', 'pointerdown', 'keydown', 'touchstart', 'wheel'].forEach(function (ev) {
+    window.addEventListener(ev, wake, { passive: true });
+  });
+  document.addEventListener('fullscreenchange', wake);
+  document.addEventListener('webkitfullscreenchange', wake);
+
+  syncControls(); render(); wake();
+})();
+</script>
+</body>
+</html>
