@@ -46,10 +46,20 @@
   #panel button:hover { background: #363b49; }
   #panel :focus-visible { outline: 2px solid #8ab4ff; outline-offset: 2px; }
   .pattern { display: flex; align-items: center; gap: 6px; }
+  #panel .sub { color: #aab0c0; font-size: 12px; }
+
+  /* Invisible field that holds focus so the iOS keyboard stays up. 16px font stops iOS from zooming in. */
+  #kbInput {
+    position: fixed; top: 0; left: 0; width: 1px; height: 1px;
+    margin: 0; padding: 0; border: 0; outline: 0; resize: none; overflow: hidden;
+    opacity: 0; font-size: 16px; color: transparent; caret-color: transparent; background: transparent;
+    pointer-events: none;
+  }
 </style>
 </head>
 <body>
 <div id="stage"></div>
+<textarea id="kbInput" tabindex="-1" aria-hidden="true" autocomplete="off" autocorrect="off" autocapitalize="sentences" spellcheck="false"></textarea>
 
 <div id="panel" role="toolbar" aria-label="Display settings">
   <label>Background <input type="color" id="bg"></label>
@@ -65,6 +75,7 @@
   <label>Brightness <input type="range" id="bright" min="5" max="100" step="1"><input type="number" id="brightN" class="pct" min="5" max="100" step="1" aria-label="Brightness percent"><span class="unit">%</span></label>
   <span id="hint" hidden>Share → Add to Home Screen for fullscreen</span>
   <button id="fs" type="button">Fullscreen</button>
+  <span id="kbWrap" hidden><button id="kb" type="button">Keyboard mode</button> <span class="sub">exit: hold 2 fingers on screen for 2s</span></span>
   <button id="reset" type="button">Reset</button>
 </div>
 
@@ -108,13 +119,30 @@
     return '#' + ('000000' + out.toString(16)).slice(-6);
   }
 
+  // Keyboard mode (iOS): the real on-screen keyboard stays up and the markers fit the area above it
+  var kbMode = false, kb = $('kbInput'), KB_KEY = KEY + '-keyboard';
+  var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+  // The visible area: above the keyboard in keyboard mode, otherwise the whole window
+  function viewport() {
+    var vv = window.visualViewport;
+    if (kbMode && vv) return { x: vv.offsetLeft, y: vv.offsetTop, w: vv.width, h: vv.height };
+    return { x: 0, y: 0, w: window.innerWidth, h: window.innerHeight };
+  }
+
   function render() {
-    var W = window.innerWidth, H = window.innerHeight;
+    var v = viewport(), W = v.w, H = v.h;
     var bg = scaled(s.bg, s.bright), mk = scaled(mix(s.mk, s.bg, s.opacity / 100), s.bright);
     document.documentElement.style.background = bg;
     document.body.style.background = bg;
+    stage.style.cssText = kbMode
+      ? 'left:' + v.x + 'px;top:' + v.y + 'px;width:' + W + 'px;height:' + H + 'px;right:auto;bottom:auto'
+      : '';
 
-    var d = Math.round(Math.min(W, H) * s.size / 100);
+    // Marker size follows the full screen so dots don't shrink when the keyboard opens
+    var de = document.documentElement;
+    var d = Math.round(Math.min(de.clientWidth || W, de.clientHeight || H) * s.size / 100);
     var mx = W * s.margin / 100, my = H * s.margin / 100;
     var frag = document.createDocumentFragment();
     for (var r = 0; r < s.rows; r++) {
@@ -223,22 +251,82 @@
   }
 
   // Click the bare screen to go fullscreen the first time
-  stage.addEventListener('click', function () { if (!isFs()) toggleFs(); });
-  stage.addEventListener('dblclick', toggleFs);
+  stage.addEventListener('click', function () { if (!kbMode && !isFs()) toggleFs(); });
+  stage.addEventListener('dblclick', function () { if (!kbMode) toggleFs(); });
 
   window.addEventListener('keydown', function (e) {
+    if (kbMode) { if (e.key === 'Escape') exitKb(); return; }
     var t = e.target && e.target.tagName;
     if ((e.key === 'f' || e.key === 'F') && t !== 'INPUT') toggleFs();
   });
+
+  function focusKb() {
+    try { kb.focus({ preventScroll: true }); } catch (e) { kb.focus(); }
+  }
+
+  // Must run inside a tap: iOS only raises the keyboard when focus comes from a user gesture
+  function enterKb(withFocus) {
+    kbMode = true;
+    if (withFocus) focusKb();
+    try { localStorage.setItem(KB_KEY, '1'); } catch (e) {}
+    clearTimeout(timer);
+    panel.classList.add('off');
+    panel.inert = true; // also disables the keyboard's ‹ › field arrows
+    document.body.classList.add('idle');
+    render();
+  }
+
+  function exitKb() {
+    kbMode = false;
+    cancelHold();
+    try { localStorage.removeItem(KB_KEY); } catch (e) {}
+    panel.inert = false;
+    kb.blur(); kb.value = '';
+    render(); wake();
+  }
+
+  $('kb').addEventListener('click', function () { enterKb(true); });
+  if (isIOS || /[?&]keyboard\b/.test(location.search)) $('kbWrap').hidden = false;
+
+  // Keep typed text from piling up in the hidden field
+  kb.addEventListener('input', function () { if (kb.value.length > 2000) kb.value = ''; });
+
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', function () { if (kbMode) render(); });
+    window.visualViewport.addEventListener('scroll', function () { if (kbMode) render(); });
+  }
+
+  // In keyboard mode taps on the screen do nothing (no panel, no keyboard dismissal), except:
+  // - a tap brings the keyboard back if it was dismissed (Done, app switch, lock screen)
+  // - holding two fingers down for 2 seconds exits keyboard mode
+  var holdTimer = null;
+  function cancelHold() { clearTimeout(holdTimer); holdTimer = null; }
+  document.addEventListener('touchstart', function (e) {
+    if (!kbMode) return;
+    e.preventDefault();
+    cancelHold();
+    if (e.touches.length === 2) holdTimer = setTimeout(exitKb, 2000);
+  }, { passive: false });
+  document.addEventListener('touchend', function (e) {
+    if (!kbMode) return;
+    e.preventDefault();
+    if (e.touches.length !== 2) cancelHold();
+    if (e.touches.length === 0 && document.activeElement !== kb) focusKb();
+  }, { passive: false });
+  document.addEventListener('touchcancel', cancelHold);
+  // Same for a mouse, so the mode can be tried on a desktop browser with ?keyboard
+  document.addEventListener('mousedown', function (e) { if (kbMode) e.preventDefault(); });
+  document.addEventListener('mouseup', function () { if (kbMode && document.activeElement !== kb) focusKb(); });
 
   // Controls appear on activity and vanish after 3 seconds of stillness
   var timer;
   function hide() {
     panel.classList.add('off');
     document.body.classList.add('idle');
-    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+    if (!kbMode && document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
   }
   function wake() {
+    if (kbMode) return;
     panel.classList.remove('off');
     document.body.classList.remove('idle');
     clearTimeout(timer);
@@ -250,7 +338,11 @@
   document.addEventListener('fullscreenchange', wake);
   document.addEventListener('webkitfullscreenchange', wake);
 
-  syncControls(); render(); wake();
+  syncControls();
+  // Keyboard mode survives a reload (iOS often reloads home-screen apps); the first tap raises the keyboard
+  var kbSaved = false;
+  try { kbSaved = localStorage.getItem(KB_KEY) === '1'; } catch (e) {}
+  if (kbSaved && !$('kbWrap').hidden) enterKb(false); else { render(); wake(); }
 })();
 </script>
 </body>
