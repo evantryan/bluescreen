@@ -124,6 +124,18 @@
   var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
+  // Matches the iOS keyboard background in light and dark appearance
+  function keyboardGray() {
+    var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    return dark ? '#1c1c1e' : '#d1d3d9';
+  }
+
+  // Panel controls are switched off in keyboard mode so the toolbar's ‹ › arrows have nowhere to go
+  function setPanelEnabled(on) {
+    panel.inert = !on;
+    Array.prototype.forEach.call(panel.querySelectorAll('input, button'), function (el) { el.disabled = !on; });
+  }
+
   // The visible area: above the keyboard in keyboard mode, otherwise the whole window
   function viewport() {
     var vv = window.visualViewport;
@@ -134,10 +146,13 @@
   function render() {
     var v = viewport(), W = v.w, H = v.h;
     var bg = scaled(s.bg, s.bright), mk = scaled(mix(s.mk, s.bg, s.opacity / 100), s.bright);
-    document.documentElement.style.background = bg;
-    document.body.style.background = bg;
+    // In keyboard mode only the area above the keyboard is blue. Behind the see-through keyboard
+    // and its toolbar is plain keyboard gray, so the keyboard looks normal instead of tinted blue.
+    var fill = kbMode ? keyboardGray() : bg;
+    document.documentElement.style.background = fill;
+    document.body.style.background = fill;
     stage.style.cssText = kbMode
-      ? 'left:' + v.x + 'px;top:' + v.y + 'px;width:' + W + 'px;height:' + H + 'px;right:auto;bottom:auto'
+      ? 'background:' + bg + ';left:' + v.x + 'px;top:' + v.y + 'px;width:' + W + 'px;height:' + H + 'px;right:auto;bottom:auto'
       : '';
 
     // Marker size follows the full screen so dots don't shrink when the keyboard opens
@@ -271,7 +286,7 @@
     try { localStorage.setItem(KB_KEY, '1'); } catch (e) {}
     clearTimeout(timer);
     panel.classList.add('off');
-    panel.inert = true; // also disables the keyboard's ‹ › field arrows
+    setPanelEnabled(false);
     document.body.classList.add('idle');
     render();
   }
@@ -280,7 +295,7 @@
     kbMode = false;
     cancelHold();
     try { localStorage.removeItem(KB_KEY); } catch (e) {}
-    panel.inert = false;
+    setPanelEnabled(true);
     kb.blur(); kb.value = '';
     render(); wake();
   }
@@ -290,6 +305,8 @@
 
   // Keep typed text from piling up in the hidden field
   kb.addEventListener('input', function () { if (kb.value.length > 2000) kb.value = ''; });
+
+  try { window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function () { if (kbMode) render(); }); } catch (e) {}
 
   if (window.visualViewport) {
     window.visualViewport.addEventListener('resize', function () { if (kbMode) render(); });
