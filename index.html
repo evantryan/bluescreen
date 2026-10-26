@@ -21,7 +21,7 @@
   .dot { position: absolute; border-radius: 50%; }
 
   #panel {
-    position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%);
+    position: fixed; left: 50%; bottom: max(16px, env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
     width: max-content; max-width: calc(100vw - 24px);
     box-sizing: border-box; padding: 12px 16px;
     display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; justify-content: center;
@@ -63,6 +63,7 @@
   </span>
   <label>Edge margin <input type="range" id="margin" min="0" max="45" step="1"><input type="number" id="marginN" class="pct" min="0" max="45" step="1" aria-label="Edge margin percent"><span class="unit">%</span></label>
   <label>Brightness <input type="range" id="bright" min="5" max="100" step="1"><input type="number" id="brightN" class="pct" min="5" max="100" step="1" aria-label="Brightness percent"><span class="unit">%</span></label>
+  <span id="hint" hidden>Share → Add to Home Screen for fullscreen</span>
   <button id="fs" type="button">Fullscreen</button>
   <button id="reset" type="button">Reset</button>
 </div>
@@ -213,6 +214,13 @@
   }
   document.addEventListener('visibilitychange', function () { if (!document.hidden) keepAwake(); });
   $('fs').addEventListener('click', toggleFs);
+
+  // iPhone Safari has no Fullscreen API: point to Add to Home Screen, and hide the dead button
+  var el0 = document.documentElement;
+  if (!(el0.requestFullscreen || el0.webkitRequestFullscreen)) {
+    $('fs').hidden = true;
+    if (!navigator.standalone) $('hint').hidden = false;
+  }
 
   // Click the bare screen to go fullscreen the first time
   stage.addEventListener('click', function () { if (!isFs()) toggleFs(); });
