@@ -148,9 +148,19 @@
   function statusBarHeight() { return safeProbe.offsetHeight || 0; }
 
   // The visible area: above the keyboard in keyboard mode, otherwise the whole window
+  // In keyboard mode the area seen while the keyboard is up is remembered, so the dots stay put
+  // when the keyboard is closed (the checkmark, app switch) until a tap brings it back.
+  // It's forgotten on rotation, since the keyboard is a different size then.
+  var kbArea = null;
   function viewport() {
     var vv = window.visualViewport;
-    if (kbMode && vv) return { x: vv.offsetLeft, y: vv.offsetTop, w: vv.width, h: vv.height };
+    if (kbMode && vv) {
+      var cur = { x: vv.offsetLeft, y: vv.offsetTop, w: vv.width, h: vv.height };
+      var full = document.documentElement.clientHeight || window.innerHeight;
+      if (cur.h < full * 0.85) kbArea = cur; // keyboard is up
+      else if (kbArea && Math.abs(kbArea.w - cur.w) < 2) return { x: cur.x, y: cur.y, w: kbArea.w, h: kbArea.h };
+      return cur;
+    }
     return { x: 0, y: 0, w: window.innerWidth, h: window.innerHeight };
   }
 
@@ -318,6 +328,7 @@
 
   function exitKb() {
     kbMode = false;
+    kbArea = null;
     cancelHold();
     try { localStorage.removeItem(KB_KEY); } catch (e) {}
     setPanelEnabled(true);
