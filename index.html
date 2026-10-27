@@ -165,9 +165,9 @@
     document.documentElement.style.background = base;
     document.body.style.background = base;
     topTint.style.background = bg;
-    stage.style.cssText = kbMode
+    stage.style.cssText = 'background:' + bg + ';' + (kbMode
       ? 'left:' + v.x + 'px;top:' + v.y + 'px;width:' + W + 'px;height:' + H + 'px;right:auto;bottom:auto'
-      : '';
+      : '');
     // In keyboard mode, a separate gray layer sits behind the see-through keyboard and its toolbar,
     // so the keyboard looks normal instead of tinted blue
     kbFill.style.cssText = kbMode
