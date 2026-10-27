@@ -19,6 +19,7 @@
   body.idle, body.idle * { cursor: none !important; }
   #stage { position: fixed; inset: 0; }
   #safeTop { position: fixed; top: 0; left: 0; width: 0; height: env(safe-area-inset-top, 0px); visibility: hidden; pointer-events: none; }
+  #topTint { position: fixed; top: 0; left: 0; right: 0; height: max(20px, env(safe-area-inset-top, 0px)); pointer-events: none; }
   #kbFill { display: none; position: fixed; left: 0; right: 0; bottom: 0; }
   .dot { position: absolute; border-radius: 50%; }
 
@@ -63,6 +64,7 @@
 <div id="stage"></div>
 <div id="kbFill"></div>
 <div id="safeTop" aria-hidden="true"></div>
+<div id="topTint" aria-hidden="true"></div>
 <textarea id="kbInput" tabindex="-1" aria-hidden="true" autocomplete="off" autocorrect="off" autocapitalize="sentences" spellcheck="false"></textarea>
 
 <div id="panel" role="toolbar" aria-label="Display settings">
@@ -142,7 +144,7 @@
   }
 
   // Height of the status bar area at the top (0 in landscape, or where the page doesn't reach under it)
-  var safeProbe = $('safeTop');
+  var safeProbe = $('safeTop'), topTint = $('topTint');
   function statusBarHeight() { return safeProbe.offsetHeight || 0; }
 
   // The visible area: above the keyboard in keyboard mode, otherwise the whole window
@@ -155,9 +157,14 @@
   function render() {
     var v = viewport(), W = v.w, H = v.h;
     var bg = scaled(s.bg, s.bright), mk = scaled(mix(s.mk, s.bg, s.opacity / 100), s.bright);
-    // The page background must stay the screen color: Safari on iOS 26 tints the status bar from it.
-    document.documentElement.style.background = bg;
-    document.body.style.background = bg;
+    // iOS paints some edges itself using the page's base background color. In keyboard mode that
+    // base is keyboard gray, so the strip iOS paints at the very bottom (below anything the page can
+    // draw) matches the keyboard. The status bar is kept the screen color by the fixed blue strip
+    // across the top, which Safari on iOS 26+ uses to tint the status bar instead of the base color.
+    var base = kbMode ? keyboardGray() : bg;
+    document.documentElement.style.background = base;
+    document.body.style.background = base;
+    topTint.style.background = bg;
     stage.style.cssText = kbMode
       ? 'left:' + v.x + 'px;top:' + v.y + 'px;width:' + W + 'px;height:' + H + 'px;right:auto;bottom:auto'
       : '';
