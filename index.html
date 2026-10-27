@@ -18,6 +18,7 @@
   }
   body.idle, body.idle * { cursor: none !important; }
   #stage { position: fixed; inset: 0; }
+  #kbFill { display: none; position: fixed; left: 0; right: 0; bottom: 0; }
   .dot { position: absolute; border-radius: 50%; }
 
   #panel {
@@ -59,6 +60,7 @@
 </head>
 <body>
 <div id="stage"></div>
+<div id="kbFill"></div>
 <textarea id="kbInput" tabindex="-1" aria-hidden="true" autocomplete="off" autocorrect="off" autocapitalize="sentences" spellcheck="false"></textarea>
 
 <div id="panel" role="toolbar" aria-label="Display settings">
@@ -75,7 +77,8 @@
   <label>Brightness <input type="range" id="bright" min="5" max="100" step="1"><input type="number" id="brightN" class="pct" min="5" max="100" step="1" aria-label="Brightness percent"><span class="unit">%</span></label>
   <span id="hint" hidden>Share → Add to Home Screen for fullscreen</span>
   <button id="fs" type="button">Fullscreen</button>
-  <span id="kbWrap" hidden><button id="kb" type="button">Keyboard mode</button> <span class="sub">exit: hold 2 fingers on screen for 2s</span></span>
+  <span id="kbWrap" hidden><button id="kb" type="button">Keyboard mode</button></span>
+  <span id="touchHint" class="sub" hidden>Hold 2 fingers for 2s to show settings</span>
   <button id="reset" type="button">Reset</button>
 </div>
 
@@ -120,7 +123,7 @@
   }
 
   // Keyboard mode (iOS): the real on-screen keyboard stays up and the markers fit the area above it
-  var kbMode = false, kb = $('kbInput'), KB_KEY = KEY + '-keyboard';
+  var kbMode = false, kb = $('kbInput'), kbFill = $('kbFill'), KB_KEY = KEY + '-keyboard';
   var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
@@ -146,13 +149,16 @@
   function render() {
     var v = viewport(), W = v.w, H = v.h;
     var bg = scaled(s.bg, s.bright), mk = scaled(mix(s.mk, s.bg, s.opacity / 100), s.bright);
-    // In keyboard mode only the area above the keyboard is blue. Behind the see-through keyboard
-    // and its toolbar is plain keyboard gray, so the keyboard looks normal instead of tinted blue.
-    var fill = kbMode ? keyboardGray() : bg;
-    document.documentElement.style.background = fill;
-    document.body.style.background = fill;
+    // The page background must stay the screen color: Safari on iOS 26 tints the status bar from it.
+    document.documentElement.style.background = bg;
+    document.body.style.background = bg;
     stage.style.cssText = kbMode
-      ? 'background:' + bg + ';left:' + v.x + 'px;top:' + v.y + 'px;width:' + W + 'px;height:' + H + 'px;right:auto;bottom:auto'
+      ? 'left:' + v.x + 'px;top:' + v.y + 'px;width:' + W + 'px;height:' + H + 'px;right:auto;bottom:auto'
+      : '';
+    // In keyboard mode, a separate gray layer sits behind the see-through keyboard and its toolbar,
+    // so the keyboard looks normal instead of tinted blue
+    kbFill.style.cssText = kbMode
+      ? 'display:block;background:' + keyboardGray() + ';top:' + Math.round(v.y + H) + 'px'
       : '';
 
     // Marker size follows the full screen so dots don't shrink when the keyboard opens
@@ -313,18 +319,26 @@
     window.visualViewport.addEventListener('scroll', function () { if (kbMode) render(); });
   }
 
-  // In keyboard mode taps on the screen do nothing (no panel, no keyboard dismissal), except:
-  // - a tap brings the keyboard back if it was dismissed (Done, app switch, lock screen)
-  // - holding two fingers down for 2 seconds exits keyboard mode
+  // Touch screens: taps on the bare screen never bring up the settings, so the screen stays clean
+  // while it's handled on set. Holding two fingers down for 2 seconds shows the settings
+  // (and in keyboard mode, also leaves keyboard mode). While the settings are showing, touches
+  // keep them up as usual.
+  // In keyboard mode taps also can't dismiss the keyboard, and a tap brings it back if it was
+  // dismissed (Done, app switch, lock screen).
   var holdTimer = null;
   function cancelHold() { clearTimeout(holdTimer); holdTimer = null; }
+  function panelHidden() { return panel.classList.contains('off'); }
   document.addEventListener('touchstart', function (e) {
-    if (!kbMode) return;
-    e.preventDefault();
     cancelHold();
-    if (e.touches.length === 2) holdTimer = setTimeout(exitKb, 2000);
+    if (kbMode) e.preventDefault();
+    else if (!panelHidden()) { wake(); return; }
+    if (e.touches.length === 2) holdTimer = setTimeout(function () {
+      holdTimer = null;
+      if (kbMode) exitKb(); else wake();
+    }, 2000);
   }, { passive: false });
   document.addEventListener('touchend', function (e) {
+    if (e.touches.length !== 2) cancelHold();
     if (!kbMode) return;
     e.preventDefault();
     if (e.touches.length !== 2) cancelHold();
@@ -349,9 +363,14 @@
     clearTimeout(timer);
     timer = setTimeout(hide, 3000);
   }
-  ['pointermove', 'pointerdown', 'keydown', 'touchstart', 'wheel'].forEach(function (ev) {
-    window.addEventListener(ev, wake, { passive: true });
+  // Mouse, pen and keys wake the controls any time; touch is handled by the two-finger hold above
+  ['pointermove', 'pointerdown', 'keydown', 'wheel'].forEach(function (ev) {
+    window.addEventListener(ev, function (e) {
+      if (e.pointerType === 'touch') return;
+      wake();
+    }, { passive: true });
   });
+  if (navigator.maxTouchPoints > 0 || 'ontouchstart' in window) $('touchHint').hidden = false;
   document.addEventListener('fullscreenchange', wake);
   document.addEventListener('webkitfullscreenchange', wake);
 
