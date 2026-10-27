@@ -196,8 +196,16 @@
     var T = Math.max(0, statusBarHeight() - v.y), AH = H - T;
     var mx = W * s.margin / 100, my = AH * s.margin / 100;
     var frag = document.createDocumentFragment();
-    for (var r = 0; r < s.rows; r++) {
-      var y = T + (s.rows === 1 ? AH / 2 : my + r * (AH - 2 * my) / (s.rows - 1));
+    var ys = [], step = s.rows > 1 ? (AH - 2 * my) / (s.rows - 1) : 0;
+    for (var r = 0; r < s.rows; r++) ys.push(T + (s.rows === 1 ? AH / 2 : my + r * step));
+    // Keyboard mode: extra rows at the same spacing continue down the rest of the screen. They sit
+    // under the gray keyboard layer while the keyboard is up and show once it's closed.
+    if (kbMode && step > 0) {
+      var bottom = (de.clientHeight || window.innerHeight) - v.y - my;
+      for (var ey = ys[ys.length - 1] + step; ey <= bottom; ey += step) ys.push(ey);
+    }
+    for (var r = 0; r < ys.length; r++) {
+      var y = ys[r];
       for (var c = 0; c < s.cols; c++) {
         var x = s.cols === 1 ? W / 2 : mx + c * (W - 2 * mx) / (s.cols - 1);
         var dot = document.createElement('div');
