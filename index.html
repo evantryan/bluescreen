@@ -18,6 +18,7 @@
   }
   body.idle, body.idle * { cursor: none !important; }
   #stage { position: fixed; inset: 0; }
+  #safeTop { position: fixed; top: 0; left: 0; width: 0; height: env(safe-area-inset-top, 0px); visibility: hidden; pointer-events: none; }
   #kbFill { display: none; position: fixed; left: 0; right: 0; bottom: 0; }
   .dot { position: absolute; border-radius: 50%; }
 
@@ -61,6 +62,7 @@
 <body>
 <div id="stage"></div>
 <div id="kbFill"></div>
+<div id="safeTop" aria-hidden="true"></div>
 <textarea id="kbInput" tabindex="-1" aria-hidden="true" autocomplete="off" autocorrect="off" autocapitalize="sentences" spellcheck="false"></textarea>
 
 <div id="panel" role="toolbar" aria-label="Display settings">
@@ -139,6 +141,10 @@
     Array.prototype.forEach.call(panel.querySelectorAll('input, button'), function (el) { el.disabled = !on; });
   }
 
+  // Height of the status bar area at the top (0 in landscape, or where the page doesn't reach under it)
+  var safeProbe = $('safeTop');
+  function statusBarHeight() { return safeProbe.offsetHeight || 0; }
+
   // The visible area: above the keyboard in keyboard mode, otherwise the whole window
   function viewport() {
     var vv = window.visualViewport;
@@ -158,16 +164,22 @@
     // In keyboard mode, a separate gray layer sits behind the see-through keyboard and its toolbar,
     // so the keyboard looks normal instead of tinted blue
     kbFill.style.cssText = kbMode
-      ? 'display:block;background:' + keyboardGray() + ';top:' + Math.round(v.y + H) + 'px'
+      // Made extra tall on purpose: with the keyboard up, iOS's bottom edge sits below the page's
+      // own bottom, and a strip there would otherwise show the screen color through the keyboard
+      ? 'display:block;background:' + keyboardGray() + ';top:' + Math.round(v.y + H) + 'px;bottom:auto;height:' +
+        Math.max(screen.height || 0, screen.width || 0, window.innerHeight) + 'px'
       : '';
 
     // Marker size follows the full screen so dots don't shrink when the keyboard opens
     var de = document.documentElement;
     var d = Math.round(Math.min(de.clientWidth || W, de.clientHeight || H) * s.size / 100);
-    var mx = W * s.margin / 100, my = H * s.margin / 100;
+    // Dots stay below the status bar (iOS blurs whatever sits under it), so rows are laid out
+    // in the area between the status bar and the bottom of the visible screen
+    var T = Math.max(0, statusBarHeight() - v.y), AH = H - T;
+    var mx = W * s.margin / 100, my = AH * s.margin / 100;
     var frag = document.createDocumentFragment();
     for (var r = 0; r < s.rows; r++) {
-      var y = s.rows === 1 ? H / 2 : my + r * (H - 2 * my) / (s.rows - 1);
+      var y = T + (s.rows === 1 ? AH / 2 : my + r * (AH - 2 * my) / (s.rows - 1));
       for (var c = 0; c < s.cols; c++) {
         var x = s.cols === 1 ? W / 2 : mx + c * (W - 2 * mx) / (s.cols - 1);
         var dot = document.createElement('div');
