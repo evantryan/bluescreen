@@ -148,19 +148,32 @@
   function statusBarHeight() { return safeProbe.offsetHeight || 0; }
 
   // The visible area: above the keyboard in keyboard mode, otherwise the whole window
-  // In keyboard mode the area seen while the keyboard is up is remembered, so the dots stay put
-  // when the keyboard is closed (the checkmark, app switch) until a tap brings it back.
-  // It's forgotten on rotation, since the keyboard is a different size then.
-  var kbArea = null, kbUp = false;
+  // In keyboard mode the area above the keyboard is remembered once the keyboard has settled, and
+  // the dots stay on it whether the keyboard is open, closed (the checkmark, app switch) or sliding
+  // in between. A new area is remembered on rotation, since the keyboard is a different size then.
+  var kbArea = null, kbUp = false, settleTimer = null;
+  function keyboardIsUp(vv) {
+    return vv.height < (document.documentElement.clientHeight || window.innerHeight) * 0.85;
+  }
+  function settleKb() {
+    clearTimeout(settleTimer);
+    settleTimer = setTimeout(function () {
+      var vv = window.visualViewport;
+      if (!kbMode || !vv || !keyboardIsUp(vv)) return;
+      if (kbArea && Math.abs(kbArea.w - vv.width) < 2 && Math.abs(kbArea.h - vv.height) < 2) return;
+      kbArea = { w: vv.width, h: vv.height };
+      render();
+    }, 400);
+  }
   function viewport() {
     var vv = window.visualViewport;
     kbUp = false;
     if (kbMode && vv) {
-      var cur = { x: vv.offsetLeft, y: vv.offsetTop, w: vv.width, h: vv.height };
-      var full = document.documentElement.clientHeight || window.innerHeight;
-      if (cur.h < full * 0.85) { kbArea = cur; kbUp = true; }
-      else if (kbArea && Math.abs(kbArea.w - cur.w) < 2) return { x: cur.x, y: cur.y, w: kbArea.w, h: kbArea.h };
-      return cur;
+      kbUp = keyboardIsUp(vv);
+      if (kbUp) settleKb();
+      var x = vv.offsetLeft, y = vv.offsetTop;
+      if (kbArea && Math.abs(kbArea.w - vv.width) < 2) return { x: x, y: y, w: kbArea.w, h: kbArea.h };
+      return { x: x, y: y, w: vv.width, h: vv.height };
     }
     return { x: 0, y: 0, w: window.innerWidth, h: window.innerHeight };
   }
@@ -356,6 +369,14 @@
   if (window.visualViewport) {
     window.visualViewport.addEventListener('resize', function () { if (kbMode) render(); });
     window.visualViewport.addEventListener('scroll', function () { if (kbMode) render(); });
+    // iOS doesn't always report the last size change (e.g. after a notification or app switch),
+    // so keyboard mode also checks the visible area twice a second and redraws if it changed
+    var lastVV = '';
+    setInterval(function () {
+      if (!kbMode) return;
+      var vv = window.visualViewport, now = [vv.width, vv.height, vv.offsetTop, vv.offsetLeft].join();
+      if (now !== lastVV) { lastVV = now; render(); }
+    }, 500);
   }
 
   // Touch screens: taps on the bare screen never bring up the settings, so the screen stays clean
